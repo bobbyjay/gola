@@ -1,46 +1,91 @@
-import React, { useState, useContext } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import { AuthContext } from "../context/AuthContext";
 
-const walletTypes = [
-  "Trust Wallet",
-  "PayPal",
-  "Coinbase",
-  "Binance",
-  "Apple Pay",
-];
-
-const WithdrawalPage = () => {
+const BetPage = () => {
   const { token } = useContext(AuthContext);
 
-  const [amount, setAmount] = useState("");
-  const [walletType, setWalletType] = useState(walletTypes[0]);
-  const [walletAddress, setWalletAddress] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [responseMsg, setResponseMsg] = useState("");
+  // State storage
+  const [events, setEvents] = useState([]);
+  const [bets, setBets] = useState([]);
 
-  const handleSubmit = async (e) => {
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 5; // Number of bets per page
+
+  const [loading, setLoading] = useState(false);
+
+  // Bet form
+  const [selectedEvent, setSelectedEvent] = useState("");
+  const [selectedMarket, setSelectedMarket] = useState("");
+  const [stake, setStake] = useState("");
+
+  const [message, setMessage] = useState("");
+
+  // ----------------------
+  // GET EVENTS
+  // ----------------------
+  const fetchEvents = async () => {
+    try {
+      const res = await fetch("https://your-api.com/api/events", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await res.json();
+      if (data.success) setEvents(data.data);
+      else setMessage("Failed to fetch events.");
+    } catch {
+      setMessage("Network error while fetching events.");
+    }
+  };
+
+  // ----------------------
+  // GET BETS
+  // ----------------------
+  const fetchBets = async () => {
+    try {
+      const res = await fetch("https://your-api.com/api/bets", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await res.json();
+      if (data.success) setBets(data.data);
+      else setMessage("Failed to fetch bets.");
+    } catch {
+      setMessage("Network error while fetching bets.");
+    }
+  };
+
+  useEffect(() => {
+    fetchEvents();
+    fetchBets();
+  }, []);
+
+  // ----------------------
+  // PLACE BET (POST)
+  // ----------------------
+  const placeBet = async (e) => {
     e.preventDefault();
 
-    if (!amount || !walletAddress) {
-      setResponseMsg("Please fill all fields.");
+    if (!selectedEvent || !selectedMarket || !stake) {
+      setMessage("Please fill all fields.");
       return;
     }
 
     const body = {
-      amount: Number(amount),
-      walletType,
-      walletAddress,
+      eventId: selectedEvent,
+      marketId: selectedMarket,
+      stake: Number(stake),
     };
 
     try {
       setLoading(true);
-      setResponseMsg("");
+      setMessage("");
 
-      const res = await fetch("https://your-api.com/api/withdrawals", {
+      const res = await fetch("https://your-api.com/api/bets", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`, // if required
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(body),
       });
@@ -49,87 +94,191 @@ const WithdrawalPage = () => {
       setLoading(false);
 
       if (data.success) {
-        setResponseMsg(data.message);
-        setAmount("");
-        setWalletAddress("");
+        setMessage("Bet placed successfully!");
+        setStake("");
+        setSelectedMarket("");
+        setSelectedEvent("");
+
+        // Refresh bets & reset to page 1
+        fetchBets();
+        setCurrentPage(1);
       } else {
-        setResponseMsg(data.message || "Something went wrong.");
+        setMessage(data.message || "Error placing bet.");
       }
-    } catch (error) {
-      console.error("Withdrawal error:", error);
+    } catch {
       setLoading(false);
-      setResponseMsg("Network or server error.");
+      setMessage("Network error while placing bet.");
     }
   };
 
+  // ----------------------
+  // Pagination Logic
+  // ----------------------
+  const totalPages = Math.ceil(bets.length / pageSize);
+
+  const paginatedBets = bets.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
+  const goToPage = (page) => {
+    if (page >= 1 && page <= totalPages) setCurrentPage(page);
+  };
+
+  const selectedEventObj = events.find((e) => e._id === selectedEvent);
+  const markets = selectedEventObj?.markets || [];
+
   return (
     <div style={styles.container}>
-      <h2>Withdrawal Request</h2>
+      <h1>Betting Page</h1>
 
-      <form onSubmit={handleSubmit} style={styles.form}>
-        {/* Amount */}
-        <label style={styles.label}>Amount</label>
-        <input
-          type="number"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          style={styles.input}
-          min={1}
-        />
+      {/* ---------------------- */}
+      {/* BET FORM */}
+      {/* ---------------------- */}
+      <div style={styles.card}>
+        <h2>Place a Bet</h2>
 
-        {/* Wallet Type */}
-        <label style={styles.label}>Wallet Type</label>
-        <select
-          value={walletType}
-          onChange={(e) => setWalletType(e.target.value)}
-          style={styles.input}
-        >
-          {walletTypes.map((wallet) => (
-            <option key={wallet} value={wallet}>
-              {wallet}
-            </option>
-          ))}
-        </select>
+        <form onSubmit={placeBet} style={styles.form}>
+          {/* Event */}
+          <label style={styles.label}>Select Event</label>
+          <select
+            style={styles.input}
+            value={selectedEvent}
+            onChange={(e) => {
+              setSelectedEvent(e.target.value);
+              setSelectedMarket("");
+            }}
+          >
+            <option value="">-- choose an event --</option>
+            {events.map((ev) => (
+              <option key={ev._id} value={ev._id}>
+                {ev.title}
+              </option>
+            ))}
+          </select>
 
-        {/* Wallet Address */}
-        <label style={styles.label}>Wallet Address</label>
-        <input
-          type="text"
-          value={walletAddress}
-          onChange={(e) => setWalletAddress(e.target.value)}
-          style={styles.input}
-        />
+          {/* Market */}
+          <label style={styles.label}>Select Market</label>
+          <select
+            style={styles.input}
+            value={selectedMarket}
+            onChange={(e) => setSelectedMarket(e.target.value)}
+            disabled={!selectedEvent}
+          >
+            <option value="">-- choose a market --</option>
+            {markets.map((m) => (
+              <option key={m._id} value={m._id}>
+                {m.name} @ {m.odds}
+              </option>
+            ))}
+          </select>
 
-        <button type="submit" style={styles.button} disabled={loading}>
-          {loading ? "Submitting..." : "Submit Withdrawal"}
-        </button>
-      </form>
+          {/* Stake */}
+          <label style={styles.label}>Stake</label>
+          <input
+            type="number"
+            min={1}
+            style={styles.input}
+            value={stake}
+            onChange={(e) => setStake(e.target.value)}
+          />
 
-      {/* Response Message */}
-      {responseMsg && <p style={styles.response}>{responseMsg}</p>}
+          <button type="submit" style={styles.button} disabled={loading}>
+            {loading ? "Placing Bet..." : "Place Bet"}
+          </button>
+        </form>
+
+        {message && <p style={styles.message}>{message}</p>}
+      </div>
+
+      {/* ---------------------- */}
+      {/* BETS LIST w/ PAGINATION */}
+      {/* ---------------------- */}
+      <div style={styles.card}>
+        <h2>Your Bets</h2>
+
+        {paginatedBets.length === 0 ? (
+          <p>No bets to display.</p>
+        ) : (
+          <ul style={styles.list}>
+            {paginatedBets.map((bet) => (
+              <li key={bet._id} style={styles.listItem}>
+                <strong>{bet.event.title}</strong>
+                <br />
+                Market: {bet.market.name} @ {bet.market.odds}
+                <br />
+                Stake: ${bet.stake}
+                <br />
+                Potential Win: ${bet.potentialWin}
+                <br />
+                Status: <strong>{bet.status}</strong>
+                <br />
+                <small>
+                  Placed: {new Date(bet.placedAt).toLocaleString()}
+                </small>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* PAGINATION UI */}
+        <div style={styles.pagination}>
+          <button
+            style={styles.pageBtn}
+            onClick={() => goToPage(currentPage - 1)}
+            disabled={currentPage === 1}
+          >
+            Previous
+          </button>
+
+          {[...Array(totalPages)].map((_, i) => {
+            const page = i + 1;
+            return (
+              <button
+                key={page}
+                onClick={() => goToPage(page)}
+                style={{
+                  ...styles.pageNum,
+                  ...(currentPage === page ? styles.activePage : {}),
+                }}
+              >
+                {page}
+              </button>
+            );
+          })}
+
+          <button
+            style={styles.pageBtn}
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={currentPage === totalPages}
+          >
+            Next
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
 
-export default WithdrawalPage;
+export default BetPage;
 
 const styles = {
   container: {
-    maxWidth: "400px",
-    margin: "40px auto",
-    padding: "20px",
-    borderRadius: "10px",
+    maxWidth: "900px",
+    margin: "30px auto",
+    padding: "10px",
+  },
+  card: {
     background: "#fff",
+    padding: "20px",
+    marginBottom: "25px",
+    borderRadius: "10px",
     boxShadow: "0 0 10px rgba(0,0,0,0.1)",
   },
   form: {
     display: "flex",
     flexDirection: "column",
     gap: "15px",
-  },
-  label: {
-    fontWeight: "bold",
-    marginBottom: "3px",
   },
   input: {
     padding: "12px",
@@ -140,15 +289,43 @@ const styles = {
   button: {
     padding: "14px",
     background: "#007bff",
-    color: "#fff",
+    color: "white",
     border: "none",
     borderRadius: "6px",
+    cursor: "pointer",
     fontSize: "16px",
+  },
+  label: { fontWeight: "bold" },
+  list: { listStyle: "none", padding: 0 },
+  listItem: { padding: "12px", borderBottom: "1px solid #eee" },
+  message: { marginTop: "10px", fontWeight: "bold" },
+
+  // Pagination
+  pagination: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: "10px",
+    marginTop: "20px",
+  },
+  pageBtn: {
+    padding: "8px 16px",
+    borderRadius: "5px",
+    border: "1px solid #ccc",
+    background: "#f7f7f7",
+    fontSize: "14px",
     cursor: "pointer",
   },
-  response: {
-    marginTop: "20px",
-    fontSize: "16px",
-    fontWeight: "bold",
+  pageNum: {
+    padding: "8px 12px",
+    borderRadius: "5px",
+    border: "1px solid #ccc",
+    background: "white",
+    cursor: "pointer",
+  },
+  activePage: {
+    background: "#007bff",
+    color: "white",
+    borderColor: "#007bff",
   },
 };
